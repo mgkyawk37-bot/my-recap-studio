@@ -1,244 +1,337 @@
 import streamlit as st
+import os
 import subprocess
+import tempfile
+import base64
+import requests
 import asyncio
 import edge_tts
 from groq import Groq
-import assemblyai as aai
-import base64
-import os
 
-st.set_page_config(page_title="AI Movie Recap Studio", page_icon="🎬", layout="wide")
+# ----------------- PAGE CONFIG -----------------
+st.set_page_config(
+    page_title="AI Movie Recap Studio",
+    page_icon="🎬",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# Image to Base64 function
+# ----------------- BACKGROUND & CSS STYLING -----------------
 def get_base64_image(image_path):
     if os.path.exists(image_path):
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode()
     return ""
 
-bg_base64 = get_base64_image("f904bbe0-e401-46c9-9774-e2d903e2561d.jpg")
-kyaw_gyi_b64 = get_base64_image("b77e842c-f0a7-4974-8357-f65c1765c738.jpg")
-shwe_ein_b64 = get_base64_image("3703192a-8066-4da6-a1f0-f6a420a0783d.jpg")
+bg_base64 = get_base64_image("bg.jpg")
+kyaw_gyi_base64 = get_base64_image("kyaw_gyi.png")
+shwe_ein_base64 = get_base64_image("shwe_ein.png")
 
-# CSS Styling - 3D Bubble Effect & Custom Background
-bg_style = f"""
-    background: linear-gradient(rgba(15, 23, 42, 0.85), rgba(15, 23, 42, 0.85)), url("data:image/jpeg;base64,{bg_base64}");
+custom_css = f"""
+<style>
+/* Background Image */
+.stApp {{
+    background: {'linear-gradient(rgba(14, 17, 23, 0.85), rgba(14, 17, 23, 0.85)), url("data:image/jpeg;base64,' + bg_base64 + '")' if bg_base64 else '#0e1117'};
     background-size: cover;
     background-position: center;
     background-attachment: fixed;
-""" if bg_base64 else "background-color: #0f172a;"
+    color: #ffffff;
+}}
 
-st.markdown(f"""
-<style>
-    .stApp {{
-        {bg_style}
-        color: #f8fafc;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    }}
-    
-    /* 3D Glass Bubble Container */
-    .avatar-container {{
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 15px;
-        border-radius: 20px;
-        background: rgba(255, 255, 255, 0.08);
-        backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-        transition: all 0.3s ease-in-out;
-    }}
-    .avatar-container:hover {{
-        transform: translateY(-5px);
-        box-shadow: 0 12px 40px 0 rgba(56, 189, 248, 0.35);
-        border: 1px solid rgba(56, 189, 248, 0.5);
-    }}
-    
-    /* 3D Bubble Avatar */
-    .bubble-avatar {{
-        width: 110px;
-        height: 110px;
-        border-radius: 50%;
-        object-fit: cover;
-        box-shadow: 
-            inset 0 0 20px rgba(255, 255, 255, 0.6),
-            inset 10px 10px 20px rgba(255, 255, 255, 0.3),
-            0 10px 25px rgba(0, 0, 0, 0.5),
-            0 0 15px rgba(56, 189, 248, 0.5);
-        border: 3px solid rgba(255, 255, 255, 0.85);
-        background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.4), rgba(0,0,0,0.2));
-        margin-bottom: 12px;
-    }}
-    
-    .avatar-title {{
-        font-size: 1.15rem;
-        font-weight: bold;
-        color: #e2e8f0;
-        margin-bottom: 4px;
-    }}
-    .avatar-desc {{
-        font-size: 0.85rem;
-        color: #94a3b8;
-    }}
+/* Header Typography */
+.main-title {{
+    font-size: 2.2rem;
+    font-weight: 800;
+    color: #ffffff;
+    margin-bottom: 0px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}}
+.sub-title {{
+    font-size: 0.95rem;
+    color: #8b949e;
+    margin-bottom: 25px;
+}}
+
+/* 3D Bubble Voice Card Styling */
+.voice-container {{
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 20px;
+    margin-top: 15px;
+    margin-bottom: 25px;
+}}
+.voice-card {{
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(12px);
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    padding: 20px;
+    width: 260px;
+    text-align: center;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}}
+.voice-card.selected {{
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.15);
+    box-shadow: 0 0 25px rgba(59, 130, 246, 0.4);
+    transform: translateY(-5px);
+}}
+.avatar-bubble {{
+    width: 90px;
+    height: 90px;
+    border-radius: 50%;
+    margin: 0 auto 12px auto;
+    background-size: cover;
+    background-position: center;
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4), inset 0 -3px 6px rgba(0,0,0,0.4), inset 0 3px 6px rgba(255,255,255,0.4);
+    border: 3px solid rgba(255, 255, 255, 0.8);
+}}
+.voice-name {{
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 4px;
+}}
+.voice-desc {{
+    font-size: 0.8rem;
+    color: #94a3b8;
+}}
+
+/* Sidebar Link Button */
+.key-link-btn {{
+    background-color: #1f2937;
+    color: #60a5fa !important;
+    padding: 3px 10px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-size: 11px;
+    border: 1px solid #374151;
+    font-weight: 600;
+    transition: 0.2s;
+}}
+.key-link-btn:hover {{
+    background-color: #374151;
+    color: #93c5fd !important;
+}}
 </style>
-""", unsafe_allow_html=True)
+"""
+st.markdown(custom_css, unsafe_allow_html=True)
 
-st.title("🎬 AI Movie Recap Studio")
-st.caption("One-Click Auto Recap: Myanmar & English Dubbing + Time-Synced CapCut SRT")
+# ----------------- SIDEBAR: API KEYS & EXTERNAL LINKS -----------------
+with st.sidebar:
+    st.markdown("### 🔑 API Keys ချိန်ညှိချက်")
+    st.write("")
+    
+    # 1. Groq API Key Setup
+    st.markdown("""
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+            <span style="font-weight: 600; font-size: 13.5px; color: #e5e7eb;">Groq API Key (ဇာတ်ညွှန်း/ဘာသာပြန်):</span>
+            <a href="https://console.groq.com/keys" target="_blank" class="key-link-btn">Get Free Key ↗</a>
+        </div>
+    """, unsafe_allow_html=True)
+    groq_api_key = st.text_input("Groq API Key", placeholder="gsk_...", type="password", label_visibility="collapsed")
+    st.caption("Groq Cloud (Llama-3) ဖြင့် ဗီဒီယိုဇာတ်လမ်းကို အချိန်ကိုက် မြန်မာပြန်ပေးပါသည်။")
+    
+    st.markdown("<hr style='margin: 18px 0; border: 0.5px solid #374151;'>", unsafe_allow_html=True)
+    
+    # 2. AssemblyAI API Key Setup
+    st.markdown("""
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+            <span style="font-weight: 600; font-size: 13.5px; color: #e5e7eb;">AssemblyAI Key (အသံဖိုင် စာသားပြောင်းရန်):</span>
+            <a href="https://www.assemblyai.com/dashboard/signup" target="_blank" class="key-link-btn">Get Free Key ↗</a>
+        </div>
+    """, unsafe_allow_html=True)
+    assemblyai_key = st.text_input("AssemblyAI Key", placeholder="Paste your AssemblyAI API Key", type="password", label_visibility="collapsed")
+    st.caption("ဗီဒီယိုထဲမှ မူရင်းအသံကို တိကျသော Timestamp စာတန်းထိုးအဖြစ် ထုတ်ယူပေးပါသည်။")
 
-# Sidebar for Keys
-st.sidebar.header("🔑 API Keys ချိန်ညှိချက်")
-groq_key = st.sidebar.text_input("Groq API Key:", type="password", placeholder="gsk_...")
-assembly_key = st.sidebar.text_input("AssemblyAI API Key:", type="password")
+    st.markdown("<hr style='margin: 18px 0; border: 0.5px solid #374151;'>", unsafe_allow_html=True)
+    st.info("💡 API Keys များသည် မိမိ Browser တွင်သာ ခေတ္တအသုံးပြုပြီး လုံခြုံစွာ ရှိနေပါမည်။")
 
-# Language Selection
-st.subheader("🌐 ဘာသာစကား ရွေးချယ်ပါ (Language Mode)")
-target_lang = st.radio(
-    "Recap ပြုလုပ်မည့် ဘာသာစကား:",
-    ["မြန်မာဘာသာ (Myanmar Dubbing)", "အင်္ဂလိပ်ဘာသာ (English Dubbing)"],
-    horizontal=True
+# ----------------- MAIN UI -----------------
+st.markdown('<div class="main-title">🎬 AI Movie Recap Studio</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">One-Click Auto Recap: Myanmar & English Dubbing + Time-Synced CapCut SRT</div>', unsafe_allow_html=True)
+
+# 1. Language Mode Selection
+st.markdown("#### 🌐 ဘာသာစကား ရွေးချယ်ပါ (Language Mode)")
+lang_mode = st.radio(
+    "ဘာသာစကား ရွေးချယ်ပါ",
+    options=["မြန်မာဘာသာ (Myanmar Dubbing)", "အင်္ဂလိပ်ဘာသာ (English Dubbing)"],
+    index=0,
+    horizontal=True,
+    label_visibility="collapsed"
 )
 
-st.divider()
+st.write("")
 
-# 3D Avatar Voice Selection
-st.subheader("🎙️ အသံရွေးချယ်ပါ (Voice Selection)")
-col_v1, col_v2 = st.columns(2)
+# 2. Voice Selection (Kyaw Gyi & Shwe Ein)
+st.markdown("#### 🎙️ အသံရွေးချယ်ပါ (Voice Selection)")
+col1, col2 = st.columns(2)
 
-with col_v1:
-    img_tag_1 = f'<img src="data:image/png;base64,{kyaw_gyi_b64}" class="bubble-avatar"/>' if kyaw_gyi_b64 else '<div class="bubble-avatar" style="background:#38bdf8; display:flex; align-items:center; justify-content:center; font-size:40px;">👨</div>'
-    st.markdown(f"""
-    <div class="avatar-container">
-        {img_tag_1}
-        <div class="avatar-title">ကျော်ကြီး (Kyaw Gyi)</div>
-        <div class="avatar-desc">Male • ဇာတ်လမ်းပြော ခပ်နက်နက်အသံ</div>
+with col1:
+    voice_choice = st.radio(
+        "Voice Selector",
+        options=["ကျော်ကြီး (Kyaw Gyi)", "ရွှေအိမ် (Shwe Ein)"],
+        index=0,
+        horizontal=True
+    )
+
+selected_voice = "kyaw_gyi" if "ကျော်ကြီး" in voice_choice else "shwe_ein"
+
+# 3D Avatar Display Cards
+st.markdown(f"""
+<div class="voice-container">
+    <div class="voice-card {'selected' if selected_voice == 'kyaw_gyi' else ''}">
+        <div class="avatar-bubble" style="{'background-image: url(data:image/png;base64,' + kyaw_gyi_base64 + ');' if kyaw_gyi_base64 else 'background-color: #3b82f6;'}"></div>
+        <div class="voice-name">ကျော်ကြီး (Kyaw Gyi)</div>
+        <div class="voice-desc">Male • ဇာတ်လမ်းပြော ခပ်နက်နက်အသံ</div>
     </div>
-    """, unsafe_allow_html=True)
-
-with col_v2:
-    img_tag_2 = f'<img src="data:image/png;base64,{shwe_ein_b64}" class="bubble-avatar"/>' if shwe_ein_b64 else '<div class="bubble-avatar" style="background:#f472b6; display:flex; align-items:center; justify-content:center; font-size:40px;">👩</div>'
-    st.markdown(f"""
-    <div class="avatar-container">
-        {img_tag_2}
-        <div class="avatar-title">ရွှေအိမ် (Shwe Ein)</div>
-        <div class="avatar-desc">Female • ကြည်လင်ပြတ်သား သဘာဝအသံ</div>
+    <div class="voice-card {'selected' if selected_voice == 'shwe_ein' else ''}">
+        <div class="avatar-bubble" style="{'background-image: url(data:image/png;base64,' + shwe_ein_base64 + ');' if shwe_ein_base64 else 'background-color: #ec4899;'}"></div>
+        <div class="voice-name">ရွှေအိမ် (Shwe Ein)</div>
+        <div class="voice-desc">Female • ကြည်လင်ပြတ်သား သဘာဝအသံ</div>
     </div>
-    """, unsafe_allow_html=True)
+</div>
+""", unsafe_allow_html=True)
 
-voice_selected = st.radio("အသုံးပြုမည့် Persona ကို ရွေးချယ်ပါ:", ["ကျော်ကြီး (Male)", "ရွှေအိမ် (Female)"], horizontal=True)
+# 3. Video File Uploader
+uploaded_video = st.file_uploader("📂 Recap လုပ်မည့် ဗီဒီယိုဖိုင်ကို တင်ပါ (MP4, MKV, MOV)", type=["mp4", "mkv", "mov"])
 
-st.divider()
+# ----------------- HELPER FUNCTIONS -----------------
+def extract_audio(video_path, audio_path):
+    cmd = ["ffmpeg", "-y", "-i", video_path, "-vn", "-acodec", "libmp3lame", "-q:a", "4", audio_path]
+    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
-# File Uploader
-uploaded_file = st.file_uploader("📥 မူရင်း ဗီဒီယိုဖိုင် တင်ပါ (MP4, MKV, MOV)", type=["mp4", "mkv", "mov"])
+def transcribe_audio_assemblyai(audio_path, api_key):
+    headers = {"authorization": api_key}
+    with open(audio_path, "rb") as f:
+        upload_response = requests.post("https://api.assemblyai.com/v2/upload", headers=headers, data=f)
+    audio_url = upload_response.json()["upload_url"]
 
-def format_srt_time(ms):
-    seconds = int(ms / 1000)
-    m, s = divmod(seconds, 60)
-    h, m = divmod(m, 60)
-    millis = int(ms % 1000)
-    return f"{h:02d}:{m:02d}:{s:02d},{millis:03d}"
+    transcript_req = requests.post(
+        "https://api.assemblyai.com/v2/transcript",
+        headers=headers,
+        json={"audio_url": audio_url}
+    )
+    transcript_id = transcript_req.json()["id"]
 
-async def text_to_speech(text, output_file, voice_code):
-    communicate = edge_tts.Communicate(text, voice_code)
-    await communicate.save(output_file)
+    while True:
+        polling_res = requests.get(f"https://api.assemblyai.com/v2/transcript/{transcript_id}", headers=headers).json()
+        if polling_res["status"] == "completed":
+            return polling_res["text"]
+        elif polling_res["status"] == "error":
+            raise Exception(f"Transcription failed: {polling_res['error']}")
+        asyncio.run(asyncio.sleep(2))
 
-if st.button("🚀 Start Auto Recap (စတင်ပြုလုပ်မည်)", type="primary"):
-    if not groq_key or not assembly_key:
-        st.error("ကျေးဇူးပြု၍ ဘယ်ဘက် Sidebar တွင် Groq နှင့် AssemblyAI API Keys များကို အရင်ထည့်သွင်းပေးပါ။")
-    elif not uploaded_file:
-        st.error("ဗီဒီယိုဖိုင် အရင် တင်ပေးပါ။")
+def generate_recap_script(original_transcript, groq_key, lang):
+    client = Groq(api_key=groq_key)
+    target_lang = "Burmese (မြန်မာဘာသာ)" if "မြန်မာ" in lang else "English"
+    prompt = f"""
+You are a master movie recap narrator for TikTok and Facebook Reels.
+Here is the raw speech transcript from a video:
+"{original_transcript}"
+
+Please write a dramatic, concise, engaging, and fast-paced movie recap script based on this transcript.
+Target Language: {target_lang}
+Keep the narration synchronized, natural, and compelling without unnecessary greetings.
+"""
+    chat_completion = client.chat.completions.create(
+        messages=[{"role": "user", "content": prompt}],
+        model="llama-3.3-70b-versatile"
+    )
+    return chat_completion.choices[0].message.content
+
+async def create_edge_tts_audio(text, output_audio, voice_type, lang):
+    if "မြန်မာ" in lang:
+        voice = "my-MM-ThihaNeural" if voice_type == "kyaw_gyi" else "my-MM-NilarNeural"
     else:
-        video_input = "temp_input.mp4"
-        with open(video_input, "wb") as f:
-            f.write(uploaded_file.read())
+        voice = "en-US-ChristopherNeural" if voice_type == "kyaw_gyi" else "en-US-JennyNeural"
+    communicate = edge_tts.Communicate(text, voice)
+    await communicate.save(output_audio)
+
+def create_srt_file(text, output_srt):
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    srt_content = ""
+    start_sec = 0
+    duration_per_line = 3.5
+
+    for idx, line in enumerate(lines, 1):
+        end_sec = start_sec + duration_per_line
+        s_h, s_m, s_s = int(start_sec // 3600), int((start_sec % 3600) // 60), int(start_sec % 60)
+        e_h, e_m, e_s = int(end_sec // 3600), int((end_sec % 3600) // 60), int(end_sec % 60)
         
-        status_box = st.status("AI အဆင့်ဆင့် စတင်ဆောင်ရွက်နေပါသည်...", expanded=True)
+        srt_content += f"{idx}\n"
+        srt_content += f"{s_h:02d}:{s_m:02d}:{s_s:02d},000 --> {e_h:02d}:{e_m:02d}:{e_s:02d},000\n"
+        srt_content += f"{line}\n\n"
+        start_sec = end_sec
 
-        try:
-            status_box.write("⏳ ၁/၅ - ဗီဒီယိုမှ စကားပြောအသံကို ခွဲထုတ်နေပါသည်...")
-            orig_audio = "temp_audio.wav"
-            subprocess.run(["ffmpeg", "-y", "-i", video_input, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", orig_audio], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    with open(output_srt, "w", encoding="utf-8") as f:
+        f.write(srt_content)
+    return output_srt
 
-            status_box.write("⏳ ၂/၅ - မူရင်း စကားပြောများကို အချိန်မှတ်နှင့်အတူ ထုတ်ယူနေပါသည်...")
-            aai.settings.api_key = assembly_key
-            config = aai.TranscriptionConfig(language_code="zh")
-            transcriber = aai.Transcriber()
-            transcript = transcriber.transcribe(orig_audio, config=config)
+# ----------------- EXECUTION -----------------
+if st.button("🚀 Start Auto Recap (စတင်ပြုလုပ်မည်)", type="primary"):
+    if not groq_api_key or not assemblyai_key:
+        st.error("⚠️ ဘယ်ဘက် Sidebar တွင် Groq API Key နှင့် AssemblyAI Key တို့ကို အရင်ဖြည့်သွင်းပေးပါခင်ဗျာ။")
+    elif not uploaded_video:
+        st.warning("⚠️ ကျေးဇူးပြု၍ ဗီဒီယိုဖိုင်တစ်ခု အရင်တင်သွင်းပေးပါခင်ဗျာ။")
+    else:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            temp_video_path = os.path.join(tmp_dir, "input_video.mp4")
+            temp_audio_path = os.path.join(tmp_dir, "extracted_audio.mp3")
+            dubbed_audio_path = os.path.join(tmp_dir, "dubbed_audio.mp3")
+            srt_path = os.path.join(tmp_dir, "capcut_subtitles.srt")
 
-            if not transcript.sentences:
-                st.error("ဗီဒီယိုထဲတွင် စကားပြောသံ မတွေ့ရှိပါ သို့မဟုတ် Error ဖြစ်ပေါ်နေပါသည်။")
-            else:
-                status_box.write("⏳ ၃/၅ - AI က Recap ဇာတ်လမ်းပြော ပုံစံဖြင့် ဘာသာပြန်နေပါသည်...")
-                client = Groq(api_key=groq_key)
-                chinese_lines = "\n".join([f"{idx+1}. {s.text}" for idx, s in enumerate(transcript.sentences)])
+            with open(temp_video_path, "wb") as f:
+                f.write(uploaded_video.read())
 
-                if "မြန်မာဘာသာ" in target_lang:
-                    prompt = f"""အောက်ပါ တရုတ်စကားပြောစာကြောင်းများကို မြန်မာဇာတ်ကား Movie Recap ပြောသလို သဘာဝကျပြီး ဆွဲဆောင်မှုရှိသော မြန်မာစကားပြောဖြင့် ဘာသာပြန်ပေးပါ။ မူရင်းစာကြောင်းအရေအတွက်နှင့် အစဉ်အတိုင်း အတိအကျ နံပါတ်စဉ်တပ်ပြီး ပြန်ပေးပါ:
-{chinese_lines}"""
-                else:
-                    prompt = f"""Translate the following transcribed lines into engaging and natural English movie recap narration style. Keep the exact same line count and numbering:
-{chinese_lines}"""
+            status_box = st.status("🎬 AI Movie Recap စတင်လည်ပတ်နေပါပြီ...", expanded=True)
+            try:
+                status_box.write("1️⃣ ဗီဒီယိုထဲမှ အသံဖိုင်ကို သီးသန့်ထုတ်ယူနေပါသည်...")
+                extract_audio(temp_video_path, temp_audio_path)
 
-                chat_completion = client.chat.completions.create(
-                    messages=[{"role": "user", "content": prompt}],
-                    model="llama-3.3-70b-versatile",
-                )
-                
-                translated_content = chat_completion.choices[0].message.content
-                trans_lines = [line.strip() for line in translated_content.split("\n") if line.strip()]
+                status_box.write("2️⃣ AssemblyAI ဖြင့် ဗီဒီယိုထဲမှ စကားသံများကို စာသားပြောင်းနေပါသည်...")
+                raw_text = transcribe_audio_assemblyai(temp_audio_path, assemblyai_key)
 
-                srt_content = ""
-                full_script = []
+                status_box.write("3️⃣ Groq AI ဖြင့် စိတ်ဝင်စားဖွယ် ဇာတ်လမ်းအကျဉ်းနှင့် ဘာသာပြန် ရေးဖွဲ့နေပါသည်...")
+                recap_script = generate_recap_script(raw_text, groq_api_key, lang_mode)
 
-                for idx, sentence in enumerate(transcript.sentences):
-                    text_line = sentence.text
-                    if idx < len(trans_lines):
-                        clean_line = trans_lines[idx]
-                        if "." in clean_line[:4]:
-                            clean_line = clean_line.split(".", 1)[-1].strip()
-                        text_line = clean_line
-                    
-                    full_script.append(text_line)
-                    start_t = format_srt_time(sentence.start)
-                    end_t = format_srt_time(sentence.end)
-                    srt_content += f"{idx+1}\n{start_t} --> {end_t}\n{text_line}\n\n"
+                status_box.write(f"4️⃣ {voice_choice} အသံဖြင့် အသံဒပ်ဘင်းဖိုင် ထုတ်လုပ်နေပါသည်...")
+                asyncio.run(create_edge_tts_audio(recap_script, dubbed_audio_path, selected_voice, lang_mode))
 
-                srt_filename = "Myanmar_Subtitles.srt" if "မြန်မာဘာသာ" in target_lang else "English_Subtitles.srt"
-                with open(srt_filename, "w", encoding="utf-8") as f:
-                    f.write(srt_content)
+                status_box.write("5️⃣ CapCut အချိန်ကိုက် SRT စာတန်းထိုးဖိုင် တည်ဆောက်နေပါသည်...")
+                create_srt_file(recap_script, srt_path)
 
-                status_box.write("⏳ ၄/၅ - ရွေးချယ်ထားသော အသံဖြင့် Dubbing အသံသွင်းနေပါသည်...")
-                if "မြန်မာဘာသာ" in target_lang:
-                    tts_voice = "my-MM-ThihaNeural" if "ကျော်ကြီး" in voice_selected else "my-MM-NilarNeural"
-                else:
-                    tts_voice = "en-US-GuyNeural" if "ကျော်ကြီး" in voice_selected else "en-US-JennyNeural"
+                status_box.update(label="🎉 AI Movie Recap အောင်မြင်စွာ ပြီးဆုံးပါပြီ!", state="complete")
 
-                dubbed_audio = "dubbed_audio.mp3"
-                asyncio.run(text_to_speech(" ... ".join(full_script), dubbed_audio, tts_voice))
+                st.success("✅ အသံဒပ်ဘင်းနှင့် CapCut စာတန်းထိုးဖိုင် အသင့်ဖြစ်ပါပြီ!")
 
-                status_box.write("⏳ ၅/၅ - မူရင်းအသံဖျောက်၍ အသံအသစ်နှင့် ဗီဒီယို ပေါင်းစပ်နေပါသည်...")
-                final_video = "final_recap_video.mp4"
-                subprocess.run([
-                    "ffmpeg", "-y", "-i", video_input, "-i", dubbed_audio,
-                    "-map", "0:v:0", "-map", "1:a:0",
-                    "-c:v", "copy", "-c:a", "aac",
-                    "-shortest", final_video
-                ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                st.markdown("### 📝 ထွက်ရှိလာသော ဇာတ်လမ်းအကျဉ်း (Recap Script)")
+                st.text_area("Script", recap_script, height=180)
 
-                status_box.update(label="🎉 အားလုံး အောင်မြင်စွာ ပြုလုပ်ပြီးပါပြီ!", state="complete", expanded=False)
-                st.success("ဗီဒီယိုနှင့် CapCut စာတန်းထိုးဖိုင် အသင့်ဖြစ်ပါပြီ!")
+                st.markdown("### 🎧 အသံဒပ်ဘင်း နားဆင်ရန်နှင့် ရယူရန်")
+                with open(dubbed_audio_path, "rb") as af:
+                    audio_bytes = af.read()
+                    st.audio(audio_bytes, format="audio/mp3")
+                    st.download_button(
+                        label="⬇️ အသံဖိုင်ဒေါင်းလုဒ်ရယူရန် (Download Dubbed Audio)",
+                        data=audio_bytes,
+                        file_name="recap_dubbed_audio.mp3",
+                        mime="audio/mp3"
+                    )
 
-                col_d1, col_d2 = st.columns(2)
-                with col_d1:
-                    with open(final_video, "rb") as vf:
-                        st.download_button("📥 Download Recap Video (.mp4)", vf, file_name="Recap_Video.mp4", mime="video/mp4")
-                with col_d2:
-                    with open(srt_filename, "rb") as sf:
-                        st.download_button(f"📥 Download CapCut {srt_filename}", sf, file_name=srt_filename, mime="text/plain")
+                st.markdown("### 💬 CapCut စာတန်းထိုး SRT ဖိုင် ရယူရန်")
+                with open(srt_path, "rb") as sf:
+                    st.download_button(
+                        label="⬇️ CapCut SRT ဖိုင် ဒေါင်းလုဒ်ရယူရန် (Download SRT)",
+                        data=sf.read(),
+                        file_name="capcut_subtitles.srt",
+                        mime="text/plain"
+                    )
 
-        except Exception as e:
-            status_box.update(label="Error ဖြစ်ပေါ်ခဲ့ပါသည်", state="error")
-            st.error(f"အမှားဖြစ်ရသည့်အကြောင်းအရင်း: {str(e)}")
+            except Exception as e:
+                status_box.update(label="❌ လုပ်ဆောင်မှု မအောင်မြင်ပါ", state="error")
+                st.error(f"အမှားဖြစ်ပေါ်ရသည့်အကြောင်းရင်း: {e}")
