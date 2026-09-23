@@ -1,0 +1,4 @@
+streamlit
+groq
+assemblyai
+edge-tts
