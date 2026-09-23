@@ -16,9 +16,9 @@ def get_base64_image(image_path):
             return base64.b64encode(img_file.read()).decode()
     return ""
 
-bg_base64 = get_base64_image("bg.jpg")
-kyaw_gyi_b64 = get_base64_image("kyaw_gyi.png")
-shwe_ein_b64 = get_base64_image("shwe_ein.png")
+bg_base64 = get_base64_image("f904bbe0-e401-46c9-9774-e2d903e2561d.jpg")
+kyaw_gyi_b64 = get_base64_image("b77e842c-f0a7-4974-8357-f65c1765c738.jpg")
+shwe_ein_b64 = get_base64_image("3703192a-8066-4da6-a1f0-f6a420a0783d.jpg")
 
 # CSS Styling - 3D Bubble Effect & Custom Background
 bg_style = f"""
