@@ -18,12 +18,11 @@ st.set_page_config(
 
 # ----------------- HELPER: IMAGE LOADER -----------------
 def get_base64_image(image_path):
-    if os.path.exists(image_path):
+    if image_path and os.path.exists(image_path):
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode()
     return ""
 
-# GitHub ပေါ်ရှိ နာမည်အရှည်များနှင့် နာမည်တိုများ အားလုံးအတွက် Auto-detect စစ်ဆေးခြင်း
 def find_image(file_list):
     for f in file_list:
         if os.path.exists(f):
@@ -34,23 +33,23 @@ bg_path = find_image(["3703192a-8066-4da6-a1f0-f6a420a0783d.jpg", "bg.jpg"])
 kyaw_gyi_path = find_image(["b77e842c-f0a7-4974-8357-f65c1765c738.jpg", "kyaw_gyi.png", "kyaw_gyi.jpg"])
 shwe_ein_path = find_image(["f904bbe0-e401-46c9-9774-e2d903e2561d.jpg", "shwe_ein.png", "shwe_ein.jpg"])
 
-bg_base64 = get_base64_image(bg_path) if bg_path else ""
-kyaw_gyi_base64 = get_base64_image(kyaw_gyi_path) if kyaw_gyi_path else ""
-shwe_ein_base64 = get_base64_image(shwe_ein_path) if shwe_ein_path else ""
+bg_base64 = get_base64_image(bg_path)
+kyaw_gyi_base64 = get_base64_image(kyaw_gyi_path)
+shwe_ein_base64 = get_base64_image(shwe_ein_path)
 
 # ----------------- CSS STYLING (စာသားအားလုံး အဖြူရောင် ထင်ရှားစေရန်) -----------------
 custom_css = f"""
 <style>
 /* App Background */
 .stApp {{
-    background: {'linear-gradient(rgba(10, 12, 16, 0.82), rgba(10, 12, 16, 0.82)), url("data:image/jpeg;base64,' + bg_base64 + '")' if bg_base64 else '#0e1117'};
+    background: {'linear-gradient(rgba(10, 12, 16, 0.85), rgba(10, 12, 16, 0.85)), url("data:image/jpeg;base64,' + bg_base64 + '")' if bg_base64 else '#0e1117'};
     background-size: cover;
     background-position: center;
     background-attachment: fixed;
     color: #ffffff !important;
 }}
 
-/* Radio Buttons Text Color (စာသားအားလုံး အဖြူရောင် အကြည်ဖြစ်စေရန်) */
+/* Radio Buttons Text Color */
 div[role="radiogroup"] label p,
 div[role="radiogroup"] label div,
 div[role="radiogroup"] span {{
@@ -169,7 +168,7 @@ with st.sidebar:
         </div>
     """, unsafe_allow_html=True)
     groq_api_key = st.text_input("Groq API Key", placeholder="gsk_...", type="password", label_visibility="collapsed")
-    st.caption("Groq Cloud (Llama-3.1-8b) ဖြင့် မြန်ဆန်စွာ အချိန်ကိုက် မြန်မာပြန်ပေးပါသည်။")
+    st.caption("Groq Cloud ဖြင့် မြန်ဆန်စွာ အချိန်ကိုက် မြန်မာပြန်ပေးပါသည်။")
     
     st.markdown("<hr style='margin: 16px 0; border: 0.5px solid #334155;'>", unsafe_allow_html=True)
     
@@ -202,7 +201,7 @@ lang_mode = st.radio(
 
 st.write("")
 
-# 2. Voice Selection (Kyaw Gyi & Shwe Ein)
+# 2. Voice Selection
 st.markdown('<div class="section-header">🎙️ အသံရွေးချယ်ပါ (Voice Selection)</div>', unsafe_allow_html=True)
 voice_choice = st.radio(
     "Voice Choice",
@@ -280,12 +279,26 @@ Target Language: {target_lang}
 Keep the narration natural, synchronized, thrilling, and suitable for voice-over narration.
 Do not include any narrator notes, emojis, or sound effect descriptions—just the narration script lines.
 """
-    # Free tier တွင် 100% အလုပ်လုပ်သော llama-3.1-8b-instant သို့ သတ်မှတ်ထားခြင်း
-    chat_completion = client.chat.completions.create(
-        messages=[{"role": "user", "content": prompt}],
-        model="llama-3.1-8b-instant"
-    )
-    return chat_completion.choices[0].message.content
+    # Error မတက်စေရန် အရန် Models များကို အစဉ်လိုက် စမ်းသပ်မည့် စနစ်
+    candidate_models = [
+        "llama-3.3-70b-versatile",
+        "llama3-8b-8192",
+        "llama-3.1-8b-instant"
+    ]
+    
+    last_error = None
+    for model_name in candidate_models:
+        try:
+            chat_completion = client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model=model_name
+            )
+            return chat_completion.choices[0].message.content
+        except Exception as e:
+            last_error = e
+            continue
+            
+    raise Exception(f"Groq Model Error: {last_error}")
 
 async def create_edge_tts_audio(text, output_audio, voice_type, lang):
     if "မြန်မာ" in lang:
