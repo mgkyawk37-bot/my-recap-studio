@@ -49,19 +49,21 @@ custom_css = f"""
     color: #ffffff !important;
 }}
 
-/* Radio Buttons Text Color */
+/* Radio Buttons Text Color (စာသားအားလုံး အဖြူရောင် အကြည်ဖြစ်စေရန်) */
 div[role="radiogroup"] label p,
 div[role="radiogroup"] label div,
-div[role="radiogroup"] span {{
+div[role="radiogroup"] span,
+.stRadio label,
+.stRadio div {{
     color: #ffffff !important;
     font-size: 15px !important;
-    font-weight: 600 !important;
-    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    font-weight: 700 !important;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.9);
 }}
 
 /* Sidebar Label & Text Color */
 [data-testid="stSidebar"] {{
-    background-color: rgba(18, 22, 28, 0.95) !important;
+    background-color: rgba(18, 22, 28, 0.96) !important;
 }}
 [data-testid="stSidebar"] label,
 [data-testid="stSidebar"] p,
@@ -279,26 +281,34 @@ Target Language: {target_lang}
 Keep the narration natural, synchronized, thrilling, and suitable for voice-over narration.
 Do not include any narrator notes, emojis, or sound effect descriptions—just the narration script lines.
 """
-    # Error မတက်စေရန် အရန် Models များကို အစဉ်လိုက် စမ်းသပ်မည့် စနစ်
-    candidate_models = [
-        "llama-3.3-70b-versatile",
-        "llama3-8b-8192",
-        "llama-3.1-8b-instant"
-    ]
-    
-    last_error = None
-    for model_name in candidate_models:
-        try:
-            chat_completion = client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
-                model=model_name
-            )
-            return chat_completion.choices[0].message.content
-        except Exception as e:
-            last_error = e
-            continue
-            
-    raise Exception(f"Groq Model Error: {last_error}")
+    # လက်ရှိ Groq Account ပေါ်ရှိ active ဖြစ်နေသော မော်ဒယ်များကို အလိုအလျောက် ဆွဲထုတ်ရွေးချယ်ပေးခြင်း
+    chosen_model = "openai/gpt-oss-20b"
+    try:
+        available_models = [m.id for m in client.models.list().data]
+        priority_list = [
+            "openai/gpt-oss-20b",
+            "openai/gpt-oss-120b",
+            "qwen/qwen3.8-27b",
+            "llama-3.1-8b-instant",
+            "llama-3.3-70b-versatile"
+        ]
+        for p in priority_list:
+            if p in available_models:
+                chosen_model = p
+                break
+        else:
+            for m_id in available_models:
+                if "whisper" not in m_id.lower() and "guard" not in m_id.lower():
+                    chosen_model = m_id
+                    break
+    except Exception:
+        pass
+
+    chat_completion = client.chat.completions.create(
+        messages=[{"role": "user", "content": prompt}],
+        model=chosen_model
+    )
+    return chat_completion.choices[0].message.content
 
 async def create_edge_tts_audio(text, output_audio, voice_type, lang):
     if "မြန်မာ" in lang:
