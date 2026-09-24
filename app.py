@@ -662,40 +662,84 @@ def concatenate_audio(audio_files, output_audio):
             os.remove(concat_file)
 
 def create_timed_dub_and_srt(script, output_audio, output_srt, voice_type, lang, work_dir):
+    """
+    Fast version:
+    - Generates the entire narration in ONE Edge-TTS request.
+    - Avoids the old sentence-by-sentence API calls that could take a very long time.
+    - Builds a readable SRT using weighted sentence durations based on character count.
+    This is intentionally much faster and more reliable on Streamlit Cloud.
+    """
     sentences = split_into_sentences(script)
 
     if not sentences:
         raise RuntimeError("No usable sentences were found in the recap script.")
 
-    audio_parts = []
-    timings = []
-    current_time = 0.0
-
-    for index, sentence in enumerate(sentences, start=1):
-        part_path = os.path.join(work_dir, f"part_{index:04d}.mp3")
-
-        asyncio.run(
-            synthesize_one(
-                sentence,
-                part_path,
-                voice_type,
-                lang,
+    async def make_full_audio():
+        if "မြန်မာ" in lang:
+            voice = (
+                "my-MM-ThihaNeural"
+                if voice_type == "kyaw_gyi"
+                else "my-MM-NilarNeural"
             )
+            rate = "-4%"
+            pitch = "-1Hz"
+        else:
+            voice = (
+                "en-US-ChristopherNeural"
+                if voice_type == "kyaw_gyi"
+                else "en-US-JennyNeural"
+            )
+            rate = "-3%"
+            pitch = "0Hz"
+
+        communicate = edge_tts.Communicate(
+            script,
+            voice,
+            rate=rate,
+            pitch=pitch,
+        )
+        await asyncio.wait_for(
+            communicate.save(output_audio),
+            timeout=180,
         )
 
-        duration = get_media_duration(part_path)
+    # ONE network/TTS request instead of one request per sentence.
+    asyncio.run(make_full_audio())
 
-        if duration <= 0:
-            duration = max(1.0, len(sentence) / 12.0)
+    if not os.path.exists(output_audio) or os.path.getsize(output_audio) < 1000:
+        raise RuntimeError("Edge-TTS audio file was not created correctly.")
 
-        start = current_time
-        end = current_time + duration
+    total_duration = get_media_duration(output_audio)
 
-        timings.append((start, end, sentence))
-        audio_parts.append(part_path)
-        current_time = end
+    if total_duration <= 0:
+        raise RuntimeError("Could not read the generated audio duration.")
 
-    concatenate_audio(audio_parts, output_audio)
+    # Estimate sentence timings proportionally.
+    # Longer spoken sentences receive more screen time.
+    weights = []
+    for sentence in sentences:
+        # Remove spaces/punctuation for a more useful speaking-length estimate.
+        clean_len = len(re.sub(r"[\s၊။,!?…:;\"'“”‘’()\[\]{}]", "", sentence))
+        weights.append(max(clean_len, 1))
+
+    total_weight = sum(weights)
+    current = 0.0
+    timings = []
+
+    for index, (sentence, weight) in enumerate(zip(sentences, weights)):
+        if index == len(sentences) - 1:
+            end = total_duration
+        else:
+            end = current + (total_duration * weight / total_weight)
+
+        # Tiny safety margin prevents zero/negative subtitle ranges.
+        end = max(end, current + 0.35)
+
+        if end > total_duration:
+            end = total_duration
+
+        timings.append((current, end, sentence))
+        current = end
 
     def fmt(seconds):
         total_ms = max(0, int(round(seconds * 1000)))
@@ -706,12 +750,13 @@ def create_timed_dub_and_srt(script, output_audio, output_srt, voice_type, lang,
         return f"{hours:02d}:{minutes:02d}:{secs:02d},{ms:03d}"
 
     with open(output_srt, "w", encoding="utf-8") as f:
-        for idx, (start, end, sentence) in enumerate(timings, start=1):
+        for idx, (start_time, end_time, sentence) in enumerate(timings, start=1):
             f.write(f"{idx}\n")
-            f.write(f"{fmt(start)} --> {fmt(end)}\n")
+            f.write(f"{fmt(start_time)} --> {fmt(end_time)}\n")
             f.write(f"{sentence}\n\n")
 
     return output_audio, output_srt, timings
+
 
 # =========================================================
 # EXECUTION
